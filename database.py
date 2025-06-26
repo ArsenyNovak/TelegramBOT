@@ -67,6 +67,28 @@ def delete_note(game_id):
         conn.close()
 
 
+def get_day_note(date):
+    day, month, year = map(int, date.split('.'))
+    time_start = datetime.datetime(year=year, month=month, day=day, hour=0, minute=0, second=0)
+    if time_start < datetime.datetime.now():
+        time_start = datetime.datetime.now()
+    time_finish = datetime.datetime(year=year, month=month, day=day, hour=23, minute=0, second=0)
+    conn = connection_db()
+    cur = conn.cursor()
+    sql = f'SELECT * FROM bookKORT WHERE time_finish BETWEEN "{time_start}" AND "{time_finish}" ORDER BY time_start'
+    try:
+        cur.execute(sql)
+        res = cur.fetchall()
+        cur.close()
+        conn.close()
+        return res
+    except sqlite3.Error as e:
+        print("Ошибка чтения данных: " + str(e))
+        cur.close()
+        conn.close()
+        return None
+
+
 if __name__ == "__main__":
     create_db()
 

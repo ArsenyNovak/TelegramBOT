@@ -2,7 +2,7 @@ import datetime
 import telebot
 from telebot import types
 
-from database import add_note, get_my_game, delete_note
+from database import add_note, get_my_game, delete_note, get_day_note
 
 days = {
     1: "Понедельник",
@@ -31,14 +31,15 @@ def start_menu():
     markup.add(types.InlineKeyboardButton('Отменить игру', callback_data='delete'))
     return markup
 
-def get_list_day():
+def get_list_day(isInfo):
     markup = types.InlineKeyboardMarkup()
     today = datetime.date.today()
     for i in range(3):
         day_num = datetime.datetime.isoweekday(today)
         day_name = days[day_num]
         date_str = today.strftime("%d.%m.%Y")
-        markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})', callback_data=f'day_{date_str}'))
+        markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})',
+                                              callback_data=f'day_{date_str}_{isInfo}'))
         today += datetime.timedelta(days=1)
     markup.add(types.InlineKeyboardButton('Назад', callback_data='back'))
     return markup
@@ -90,6 +91,23 @@ def confirm_delete_keys(game_id):
     return markup
 
 
+def get_list_all_game(res):
+    text = ''
+    count = 0
+    for column in res:
+        count += 1
+        user = column['user']
+        time_start = datetime.datetime.strptime(column['time_start'], "%Y-%m-%d %H:%M:%S")
+        time_start = time_start.time().strftime("%H:%M")
+        time_finish = datetime.datetime.strptime(column['time_finish'], "%Y-%m-%d %H:%M:%S")
+        time_finish = time_finish.time().strftime("%H:%M")
+        text += f'{count}. {user} забронировал корт с {time_start} до {time_finish} \n'
+
+    text += "\nЕсли хотите начать сначала введите команду /start"
+
+    return text
+
+
 @bot.message_handler(commands=['start'])
 def main(message):
     bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ", reply_markup=start_menu())
@@ -100,11 +118,11 @@ def book(callback):
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
                           text="Выбери день:",
-                          reply_markup=get_list_day())
+                          reply_markup=get_list_day(isInfo=False))
     bot.answer_callback_query(callback.id)
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('day_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('day_') and call.data.endswith('False'))
 def timedate(callback):
     day = callback.data.split("_")[1]
     bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -149,7 +167,6 @@ def complited_insert(callback):
 
 @bot.callback_query_handler(func=lambda call: call.data =='delete')
 def delete(callback):
-    print(callback.data)
     user = callback.message.chat.username
     own_game = get_my_game(user)
     if own_game:
@@ -166,7 +183,6 @@ def delete(callback):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('own game is'))
 def confirm_delete(callback):
-    print(callback.data)
     game_id = callback.data.split("_")[1]
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
@@ -177,7 +193,6 @@ def confirm_delete(callback):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('complited delete'))
 def completed_delete(callback):
-    print(callback.data)
     game_id = callback.data.split("_")[1]
     delete_note(game_id)
     bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -186,6 +201,27 @@ def completed_delete(callback):
     bot.answer_callback_query(callback.id)
 
 
+@bot.callback_query_handler(func=lambda call: call.data =='list')
+def list_book(callback):
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text="Выбери день:",
+                          reply_markup=get_list_day(isInfo=True))
+    bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('day_') and call.data.endswith('True'))
+def list_book_day(callback):
+    day = callback.data.split("_")[1]
+    db_list_game = get_day_note(day)
+    if db_list_game:
+        text = f"{day} корт забронирован в следующее время: \n\n" + get_list_all_game(db_list_game)
+    else:
+        text = f"{day} пока корт никто не бронировал \nЕсли хотите начать сначала введите команду /start"
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text=text)
+    bot.answer_callback_query(callback.id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('back'))
