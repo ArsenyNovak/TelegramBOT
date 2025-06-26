@@ -30,7 +30,41 @@ def add_note(user, time_start, time_finish):
         cur.close()
         conn.close()
     except sqlite3.Error as e:
-        print("Ошибка добавления данных" + str(e))
+        print("Ошибка добавления данных: " + str(e))
+        cur.close()
+        conn.close()
+
+
+def get_my_game(user):
+    conn = connection_db()
+    cur = conn.cursor()
+    sql = f'SELECT * FROM bookKORT WHERE user = "{user}" AND time_start > datetime("now", "localtime") ORDER BY time_start'
+    try:
+        cur.execute(sql)
+        res = cur.fetchall()
+        cur.close()
+        conn.close()
+        return res
+    except sqlite3.Error as e:
+        print("Ошибка чтения данных: " + str(e))
+        cur.close()
+        conn.close()
+        return None
+
+
+def delete_note(game_id):
+    conn = connection_db()
+    cur = conn.cursor()
+    sql = f'DELETE FROM bookKORT WHERE id = {game_id}'
+    try:
+        cur.execute(sql)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except sqlite3.Error as e:
+        print("Ошибка удаления данных: " + str(e))
+        cur.close()
+        conn.close()
 
 
 if __name__ == "__main__":

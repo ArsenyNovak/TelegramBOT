@@ -2,7 +2,7 @@ import datetime
 import telebot
 from telebot import types
 
-from database import add_note
+from database import add_note, get_my_game, delete_note
 
 days = {
     1: "Понедельник",
@@ -69,10 +69,31 @@ def confirm_keys(during_timer, timer_start, day):
     return markup
 
 
+def get_list_own_game(res):
+    markup = types.InlineKeyboardMarkup()
+    for column in res:
+        game_id = column['id']
+        dt = datetime.datetime.strptime(column['time_start'], "%Y-%m-%d %H:%M:%S")
+        day = dt.date().strftime("%d.%m.%Y")
+        time_start = dt.time().strftime("%H:%M")
+        dt = datetime.datetime.strptime(column['time_finish'], "%Y-%m-%d %H:%M:%S")
+        time_finish = dt.time().strftime("%H:%M")
+        markup.add(types.InlineKeyboardButton(f'{day} c {time_start} до {time_finish}',
+                                              callback_data=f'own game is_{game_id}'))
+    markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back'))
+    return markup
+
+def confirm_delete_keys(game_id):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(f'Да', callback_data=f'complited delete_{game_id}'))
+    markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_delete'))
+    return markup
+
 
 @bot.message_handler(commands=['start'])
 def main(message):
     bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ", reply_markup=start_menu())
+
 
 @bot.callback_query_handler(func=lambda call: call.data =='book')
 def book(callback):
@@ -104,7 +125,7 @@ def free_time(callback):
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('during_'))
-def during(callback):
+def confirm_insert(callback):
     name, during_timer, timer_start, day = callback.data.split("_")
     during_dict = {'00:30':'30 минут', '01:00': '1 час', '01:30': '1 час 30 минут', '02:00': '2 часа'}
     bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -115,7 +136,7 @@ def during(callback):
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
-def confirm(callback):
+def complited_insert(callback):
     name, during_timer, timer_start, day = callback.data.split("_")
     user = callback.message.chat.username
     time_start, time_finish = create_time(during_timer, timer_start, day)
@@ -126,10 +147,50 @@ def confirm(callback):
     bot.answer_callback_query(callback.id)
 
 
+@bot.callback_query_handler(func=lambda call: call.data =='delete')
+def delete(callback):
+    print(callback.data)
+    user = callback.message.chat.username
+    own_game = get_my_game(user)
+    if own_game:
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text="Выберите игру из списка:",
+                              reply_markup=get_list_own_game(own_game))
+    else:
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text="У вас нет забронированных игр. Если хотите начать сначала введите команду /start")
+    bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('own game is'))
+def confirm_delete(callback):
+    print(callback.data)
+    game_id = callback.data.split("_")[1]
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text=f"Вы действительно хотите отменить эту бронь?",
+                          reply_markup=confirm_delete_keys(game_id))
+    bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complited delete'))
+def completed_delete(callback):
+    print(callback.data)
+    game_id = callback.data.split("_")[1]
+    delete_note(game_id)
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text=f"Вы отменили игру. Если хотите начать сначала введите команду /start")
+    bot.answer_callback_query(callback.id)
+
+
+
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('back'))
 def back(callback):
-    if callback.message.text == "Выбери день:":
+    if callback.message.text in {"Выбери день:", 'Выберите игру из списка:'}:
         bot.edit_message_text(chat_id=callback.message.chat.id,
                               message_id=callback.message.message_id,
                               text="Привет! Вот чем я могу тебе помочь: ",
@@ -142,21 +203,9 @@ def back(callback):
         timedate(callback)
     if callback.message.text.startswith("Вы хотите "):
         free_time(callback)
-
+    if callback.message.text.endswith("отменить эту бронь?"):
+        delete(callback)
 
 bot.polling(none_stop=True)
 
-
-
-
-
-# print(callback.from_user.username)
-#
-# conn = sqlite3.connect('tennis.sqlite3')
-# cur = conn.cursor()
-# cur.execute(
-#     f'INSERT INTO bookKORT VALUES (COUNT(), "arseni", CURRENT_TIMESTAMP, "2025-03-11 11-20", "2025-03-11 13-20")')
-# conn.commit()
-# cur.close()
-# conn.close()
 
