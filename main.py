@@ -106,9 +106,10 @@ def free_time(callback):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('during_'))
 def during(callback):
     name, during_timer, timer_start, day = callback.data.split("_")
+    during_dict = {'00:30':'30 минут', '01:00': '1 час', '01:30': '1 час 30 минут', '02:00': '2 часа'}
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
-                          text=f"Вы хотите {day} с {timer_start} забронировать корт на {during_timer}?",
+                          text=f"Вы хотите {day} с {timer_start} забронировать корт на {during_dict[during_timer]}?",
                           reply_markup=confirm_keys(during_timer, timer_start, day))
     bot.answer_callback_query(callback.id)
 
