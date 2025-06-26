@@ -1,7 +1,8 @@
 import datetime
 import telebot
-import sqlite3
 from telebot import types
+
+from database import add_note
 
 days = {
     1: "Понедельник",
@@ -12,6 +13,14 @@ days = {
     6: "Суббота",
     7: "Воскресенье"
 }
+
+def create_time(during_timer, timer_start, day):
+    day, month, year = map(int, day.split("."))
+    hour, minute = map(int, timer_start.split(':'))
+    time_start = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=0)
+    minutes_add = {'00:30':30, '01:00':60, '01:30':90, '02:00':120}
+    time_finish = time_start + datetime.timedelta(minutes=minutes_add[during_timer])
+    return time_start, time_finish
 
 bot  = telebot.TeleBot('7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg')
 
@@ -59,6 +68,8 @@ def confirm_keys(during_timer, timer_start, day):
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{timer_start}_{day}'))
     return markup
 
+
+
 @bot.message_handler(commands=['start'])
 def main(message):
     bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ", reply_markup=start_menu())
@@ -104,6 +115,10 @@ def during(callback):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def confirm(callback):
+    name, during_timer, timer_start, day = callback.data.split("_")
+    user = callback.message.chat.username
+    time_start, time_finish = create_time(during_timer, timer_start, day)
+    add_note(user, time_start, time_finish)
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
                           text=f"Вы забронировали корт. Если хотите начать сначала введите команду /start")
@@ -130,16 +145,7 @@ def back(callback):
 
 bot.polling(none_stop=True)
 
-# conn = sqlite3.connect('tennis.sqlite3')
-# cur = conn.cursor()
-# cur.execute('CREATE TABLE IF NOT EXISTS bookKORT(id INT AUTO_INCREMENT PRIMARY KEY, \
-#                                 user VARCHAR(30), \
-#                                 time_create DATETIME,\
-#                                 time_start DATETIME,\
-#                                 time_finish DATETIME)')
-# conn.commit()
-# cur.close()
-# conn.close()
+
 
 
 
