@@ -62,8 +62,11 @@ def get_time_book(day):
 def get_list_time(day):
     markup = types.InlineKeyboardMarkup(row_width=3)
     time_book = get_time_book(day)
+    start_hour = datetime.datetime.now().hour
+    if start_hour < 6:
+        start_hour = 6
     buttons = []
-    for hour in range(6, 22):
+    for hour in range(start_hour, 22):
         if f'{hour:02d}:00' not in time_book:
             buttons.append(types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}'))
         if f'{hour:02d}:30' not in time_book:
@@ -164,7 +167,7 @@ def free_time(callback):
     name, timer_start, day = callback.data.split("_")
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
-                          text=f"Сколько вы хотите играть?",
+                          text=f"Вы можете забронировать корт на:",
                           reply_markup=get_free_time(timer_start, day))
     bot.answer_callback_query(callback.id)
 
@@ -262,7 +265,7 @@ def back(callback):
 
     if callback.message.text.endswith("можете начать с:"):
         book(callback)
-    if callback.message.text.endswith("вы хотите играть?"):
+    if callback.message.text.endswith("забронировать корт на:"):
         timedate(callback)
     if callback.message.text.startswith("Вы хотите "):
         free_time(callback)
