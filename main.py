@@ -45,21 +45,48 @@ def get_list_day(isInfo):
     return markup
 
 
+def get_time_book(day):
+    db_list_game = get_day_note(day)
+    time_book = set()
+    if db_list_game:
+        for column in db_list_game:
+            time_start = datetime.datetime.strptime(column['time_start'], "%Y-%m-%d %H:%M:%S")
+            time_finish = datetime.datetime.strptime(column['time_finish'], "%Y-%m-%d %H:%M:%S")
+            while time_start < time_finish:
+                time_book.add(time_start.time().strftime("%H:%M"))
+                time_start += datetime.timedelta(minutes=30)
+
+    return time_book
+
+
 def get_list_time(day):
-    markup = types.InlineKeyboardMarkup()
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    time_book = get_time_book(day)
+    buttons = []
     for hour in range(6, 22):
-        btn1 = types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}')
-        btn2 = types.InlineKeyboardButton(f'{hour}:30', callback_data=f'time_{hour}:30_{day}')
-        markup.row(btn1, btn2)
+        if f'{hour:02d}:00' not in time_book:
+            buttons.append(types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}'))
+        if f'{hour:02d}:30' not in time_book:
+            buttons.append(types.InlineKeyboardButton(f'{hour}:30', callback_data=f'time_{hour}:30_{day}'))
+    markup.add(*buttons)
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{day}'))
     return markup
 
+
 def get_free_time(timer_start, day):
     markup = types.InlineKeyboardMarkup()
+    time_book = get_time_book(day)
+    time_book.update(("22:00", "22:30", "23:00"))
     markup.add(types.InlineKeyboardButton(f'30 минут', callback_data=f'during_00:30_{timer_start}_{day}'))
-    markup.add(types.InlineKeyboardButton(f'1 час', callback_data=f'during_01:00_{timer_start}_{day}'))
-    markup.add(types.InlineKeyboardButton(f'1 час 30 минут', callback_data=f'during_01:30_{timer_start}_{day}'))
-    markup.add(types.InlineKeyboardButton(f'2 часа', callback_data=f'during_02:00_{timer_start}_{day}'))
+    time_start, time_check = create_time('00:30', timer_start, day)
+    if time_check.time().strftime("%H:%M") not in time_book:
+        markup.add(types.InlineKeyboardButton(f'1 час', callback_data=f'during_01:00_{timer_start}_{day}'))
+    time_start, time_check = create_time('01:00', timer_start, day)
+    if time_check.time().strftime("%H:%M") not in time_book:
+        markup.add(types.InlineKeyboardButton(f'1 час 30 минут', callback_data=f'during_01:30_{timer_start}_{day}'))
+    time_start, time_check = create_time('01:30', timer_start, day)
+    if time_check.time().strftime("%H:%M") not in time_book:
+        markup.add(types.InlineKeyboardButton(f'2 часа', callback_data=f'during_02:00_{timer_start}_{day}'))
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{day}'))
     return markup
 
