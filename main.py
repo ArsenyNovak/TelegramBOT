@@ -3,6 +3,19 @@ import telebot
 from telebot import types
 
 from database import add_note, get_my_game, delete_note, get_day_note
+from flask import Flask, request
+
+app = Flask(__name__)
+
+bot  = telebot.TeleBot('7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg')
+
+@app.route('/' + '7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg', methods=['POST'])
+def telegram_webhook():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return '!', 200
+
 
 days = {
     1: "Понедельник",
@@ -22,7 +35,6 @@ def create_time(during_timer, timer_start, day):
     time_finish = time_start + datetime.timedelta(minutes=minutes_add[during_timer])
     return time_start, time_finish
 
-bot  = telebot.TeleBot('7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg')
 
 def start_menu():
     markup = types.InlineKeyboardMarkup()
@@ -274,4 +286,7 @@ def back(callback):
 
 bot.polling(none_stop=True)
 
+
+if __name__ == '__main__':
+    app.run()
 
