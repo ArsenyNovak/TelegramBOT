@@ -1,11 +1,28 @@
 import datetime
 import telebot
+from flask_sqlalchemy import SQLAlchemy
 from telebot import types
 
-from database import add_note, get_my_game, delete_note, get_day_note
 from flask import Flask, request
 
 app = Flask(__name__)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://arsenyfk_telebot:book56&78kort@localhost/arsenyfk_telebot'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy()
+db.init_app(app)
+
+def create_db():
+    with app.app_context():
+        db.create_all()
+
+class BookKort(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user = db.Column(db.String(80), nullable=False)
+    time_create = db.Column(db.DateTime, default=datetime.datetime.now)
+    time_start = db.Column(db.DateTime, nullable=False)
+    time_finish = db.Column(db.DateTime, nullable=False)
 
 bot  = telebot.TeleBot('7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg')
 
@@ -57,8 +74,14 @@ def get_list_day(isInfo):
     return markup
 
 
-def get_time_book(day):
-    db_list_game = get_day_note(day)
+def get_time_book(choice_day):
+    day, month, year = map(int, choice_day.split('.'))
+    time_start = datetime.datetime(year=year, month=month, day=day, hour=0, minute=0, second=0)
+    if time_start < datetime.datetime.now():
+        time_start = datetime.datetime.now()
+    time_finish = datetime.datetime(year=year, month=month, day=day, hour=23, minute=0, second=0)
+    query = db.session.query(BookKort).filter(time_start < BookKort.time_finish < time_finish)
+    db_list_game = query.order_by(BookKort.time_start).all()
     time_book = set()
     if db_list_game:
         for column in db_list_game:
@@ -200,27 +223,44 @@ def complited_insert(callback):
     name, during_timer, timer_start, day = callback.data.split("_")
     user = callback.message.chat.username
     time_start, time_finish = create_time(during_timer, timer_start, day)
-    add_note(user, time_start, time_finish)
-    bot.edit_message_text(chat_id=callback.message.chat.id,
-                          message_id=callback.message.message_id,
-                          text=f"Вы забронировали корт. Если хотите начать сначала введите команду /start")
-    bot.answer_callback_query(callback.id)
+    try:
+        new_note = BookKort(user=user, time_start=time_start, time_finish=time_finish)
+        db.session.add(new_note)
+        db.session.commit()
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=f"Вы забронировали корт. Если хотите начать сначала введите команду /start")
+    except:
+        db.session.rollback()
+        print("Ошибка добавление в БД")
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=f"Произошла ошибка добавления записи.\n Попробуйте ещё раз.")
+    finally:
+        bot.answer_callback_query(callback.id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data =='delete')
 def delete(callback):
     user = callback.message.chat.username
-    own_game = get_my_game(user)
-    if own_game:
+    try:
+        query = db.session.query(BookKort).filter(BookKort.time_start > datetime.datetime.now, BookKort.user == user)
+        own_game = query.order_by(BookKort.time_start).all()
+        if own_game:
+            bot.edit_message_text(chat_id=callback.message.chat.id,
+                                  message_id=callback.message.message_id,
+                                  text="Выберите игру из списка:",
+                                  reply_markup=get_list_own_game(own_game))
+        else:
+            bot.edit_message_text(chat_id=callback.message.chat.id,
+                                  message_id=callback.message.message_id,
+                                  text="У вас нет забронированных игр. Если хотите начать сначала введите команду /start")
+    except:
         bot.edit_message_text(chat_id=callback.message.chat.id,
                               message_id=callback.message.message_id,
-                              text="Выберите игру из списка:",
-                              reply_markup=get_list_own_game(own_game))
-    else:
-        bot.edit_message_text(chat_id=callback.message.chat.id,
-                              message_id=callback.message.message_id,
-                              text="У вас нет забронированных игр. Если хотите начать сначала введите команду /start")
-    bot.answer_callback_query(callback.id)
+                              text="Произошла ошибка при чтении данных.\nПопробуйте ещё раз. ")
+    finally:
+        bot.answer_callback_query(callback.id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('own game is'))
@@ -236,11 +276,19 @@ def confirm_delete(callback):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('complited delete'))
 def completed_delete(callback):
     game_id = callback.data.split("_")[1]
-    delete_note(game_id)
-    bot.edit_message_text(chat_id=callback.message.chat.id,
-                          message_id=callback.message.message_id,
-                          text=f"Вы отменили игру. Если хотите начать сначала введите команду /start")
-    bot.answer_callback_query(callback.id)
+    try:
+        game = db.session.query(BookKort).filter_by(id=game_id).first()
+        db.session.delete(game)
+        db.session.commit()
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=f"Вы отменили игру. Если хотите начать сначала введите команду /start")
+    except:
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=f"Произошла ошибка при удалении данных.\nПопробуйте ещё раз. ")
+    finally:
+        bot.answer_callback_query(callback.id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data =='list')
@@ -254,16 +302,29 @@ def list_book(callback):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('day_') and call.data.endswith('True'))
 def list_book_day(callback):
-    day = callback.data.split("_")[1]
-    db_list_game = get_day_note(day)
-    if db_list_game:
-        text = f"{day} корт забронирован в следующее время: \n\n" + get_list_all_game(db_list_game)
-    else:
-        text = f"{day} пока корт никто не бронировал \nЕсли хотите начать сначала введите команду /start"
-    bot.edit_message_text(chat_id=callback.message.chat.id,
-                          message_id=callback.message.message_id,
-                          text=text)
-    bot.answer_callback_query(callback.id)
+    choice_day = callback.data.split("_")[1]
+    day, month, year = map(int, choice_day.split('.'))
+    time_start = datetime.datetime(year=year, month=month, day=day, hour=0, minute=0, second=0)
+    if time_start < datetime.datetime.now():
+        time_start = datetime.datetime.now()
+    time_finish = datetime.datetime(year=year, month=month, day=day, hour=23, minute=0, second=0)
+    try:
+        query = db.session.query(BookKort).filter(time_start < BookKort.time_finish < time_finish)
+        db_list_game = query.order_by(BookKort.time_start).all()
+        if db_list_game:
+            text = f"{choice_day} корт забронирован в следующее время: \n\n" + get_list_all_game(db_list_game)
+        else:
+            text = f"{choice_day} пока корт никто не бронировал \nЕсли хотите начать сначала введите команду /start"
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=text)
+    except:
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text="Произошла ошибка при чтении данных.\nПопробуйте ещё раз. ")
+    finally:
+        bot.answer_callback_query(callback.id)
+
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('back'))
@@ -287,6 +348,7 @@ def back(callback):
 bot.polling(none_stop=True)
 
 
-if __name__ == '__main__':
-    app.run()
+if __name__ == "__main__":
+    create_db()
+    app.run(debug=True)
 
