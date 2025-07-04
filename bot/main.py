@@ -1,13 +1,24 @@
 import datetime
+import os
+
 import telebot
+from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from telebot import types
-
 from flask import Flask, request
+
+load_dotenv()
+
+TOKEN = os.getenv("TOKEN")
+DB_NAME = os.getenv("DB_NAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST", default="localhost")
+DB_PORT = os.getenv("DB_PORT")
+USER = os.getenv("USER")
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://arsenyfk_telebot:book56&78kort@localhost/arsenyfk_telebot'
+app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy()
@@ -24,14 +35,18 @@ class BookKort(db.Model):
     time_start = db.Column(db.DateTime, nullable=False)
     time_finish = db.Column(db.DateTime, nullable=False)
 
-bot  = telebot.TeleBot('7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg')
+bot  = telebot.TeleBot(TOKEN)
 
-@app.route('/' + '7812640866:AAEfsK7ftuOjvib5Pb6S8mW0gRivdnyZKYg', methods=['POST'])
+@app.route('/' + TOKEN, methods=['POST'])
 def telegram_webhook():
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return '!', 200
+
+@app.route('/app/')
+def index():
+    return 'This test flask'
 
 
 days = {
@@ -345,7 +360,7 @@ def back(callback):
     if callback.message.text.endswith("отменить эту бронь?"):
         delete(callback)
 
-bot.polling(none_stop=True)
+# bot.polling(none_stop=True)
 
 
 if __name__ == "__main__":
