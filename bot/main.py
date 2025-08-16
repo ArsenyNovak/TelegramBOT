@@ -329,7 +329,9 @@ def timedate(callback):
     user_id = callback.data.split("_")[2]
 
     def get_own_games(session):
+        # today = datetime.date.today()
         notes = session.query(BookKort).filter(
+            # BookKort.time_finish > today,
             func.DATE(BookKort.time_start) == day_date,
             BookKort.user_id == user_id,
             BookKort.canseled == False
