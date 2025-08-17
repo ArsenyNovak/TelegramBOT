@@ -206,11 +206,18 @@ def get_list_time(day, user_id):
     time_book = get_time_book(day)
     today = int(datetime.date.today().strftime('%d'))
     start_hour = 6
+    start_minute = 0
     if (int(day.split(".")[0]) == today) and (datetime.datetime.now().hour > 6):
         start_hour = datetime.datetime.now().hour
+        start_minute = datetime.datetime.now().minute
     buttons = []
     for hour in range(start_hour, 23):
         if f'{hour:02d}:00' not in time_book:
+            if start_minute < 30 and hour == start_hour:
+                buttons.append(types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}_{user_id}'))
+            if hour != start_hour:
+                buttons.append(
+                    types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}_{user_id}'))
             buttons.append(types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}_{user_id}'))
         if f'{hour:02d}:30' not in time_book:
             buttons.append(types.InlineKeyboardButton(f'{hour}:30', callback_data=f'time_{hour}:30_{day}_{user_id}'))
@@ -304,10 +311,12 @@ def main(message):
     if message.chat.type == "private":
         if member.status in ['member', 'administrator', 'creator']:
             user_id = message.from_user.id
-            bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ", reply_markup=start_menu(user_id, member))
+            bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ",
+                             reply_markup=start_menu(user_id, member), protect_content=True)
         else:
             bot.send_message(message.chat.id, "Привет! Вы не состоите в группе 'Tennis🎾_BIG_Цнянка'."
-                                              "Добавьтесь пожалуйста в группу для возможности бронирования корта")
+                                              "Добавьтесь пожалуйста в группу для возможности бронирования корта",
+                             protect_content=True)
             logger.info(f"Попытка воспользоваться ботом незарегистрированному пользователю по имени"
                         f"{message.chat.first_name} {message.chat.last_name}")
 
@@ -329,7 +338,7 @@ def timedate(callback):
     user_id = callback.data.split("_")[2]
 
     def get_own_games(session):
-        # today = datetime.date.today()
+        # today = datetime.datetime.now()
         notes = session.query(BookKort).filter(
             # BookKort.time_finish > today,
             func.DATE(BookKort.time_start) == day_date,
@@ -340,8 +349,9 @@ def timedate(callback):
 
     try:
         new_note = query_with_reconnect(get_own_games)
-        logger.info(f"Попытка сделать вторую бронь в один день ")
+
         if new_note:
+            logger.info(f"Попытка сделать вторую бронь в один день ")
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
             bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -428,6 +438,11 @@ def complited_insert(callback):
                               text=f"Вы забронировали корт {day} c {time_start_str} до {time_finish_str}.",
                               reply_markup=markup)
         bot.answer_callback_query(callback.id)
+        bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"📝 Бронь {day} c {time_start_str} до {time_finish_str}. ({user})",
+            message_thread_id=MESSAGE_THREAD_ID  # возможно понадобится если в группе есть topic
+        )
     except Exception as e:
         logger.error(f"При попытке забронировать корт возникла ошибка: {e}")
         bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -525,7 +540,7 @@ def completed_delete(callback):
 
         bot.send_message(
             chat_id=CHAT_ID,
-            text=f"Была отменена игра {day} c {time_start} до {time_finish}",
+            text=f"❌ Отменена брони {day} c {time_start} до {time_finish}",
             message_thread_id=MESSAGE_THREAD_ID  # возможно понадобится если в группе есть topic
         )
 
