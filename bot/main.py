@@ -149,7 +149,7 @@ def start_menu(user_id, member):
     markup.add(types.InlineKeyboardButton('Посмотреть расписание', callback_data=f'list_{user_id}'))
     markup.add(types.InlineKeyboardButton('Забронировать корт', callback_data=f'book_{user_id}'))
     markup.add(types.InlineKeyboardButton('Отменить бронь', callback_data=f'delete_{user_id}'))
-    if member.status in ['administrator', 'creator']:
+    if member.status in ['administrator', 'creator'] or member.user.id == 1055012806:
         markup.add(types.InlineKeyboardButton('Статистика', callback_data=f'statistic_{user_id}'))
     return markup
 
@@ -218,7 +218,6 @@ def get_list_time(day, user_id):
             if hour != start_hour:
                 buttons.append(
                     types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}_{user_id}'))
-            buttons.append(types.InlineKeyboardButton(f'{hour}:00', callback_data=f'time_{hour}:00_{day}_{user_id}'))
         if f'{hour:02d}:30' not in time_book:
             buttons.append(types.InlineKeyboardButton(f'{hour}:30', callback_data=f'time_{hour}:30_{day}_{user_id}'))
     markup.add(*buttons)
@@ -304,15 +303,19 @@ def get_list_statistic(res):
 @bot.message_handler(commands=['start'])
 def main(message):
     # раскомментировать при первом запуске чтобы узнать id чата и топика
-    if message.from_user.first_name == "ARSENI":
-        logger.info(f"{message.chat.id}")
-        logger.info(f"{message.message_thread_id}")
+    # if message.from_user.first_name == "ARSENI":
+    #     logger.info(f"{message.chat.id}")
+    #     logger.info(f"{message.message_thread_id}")
     member = bot.get_chat_member(chat_id=CHAT_ID, user_id=message.from_user.id)
     if message.chat.type == "private":
-        if member.status in ['member', 'administrator', 'creator']:
+        if member.status == 'member':
             user_id = message.from_user.id
             bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ",
                              reply_markup=start_menu(user_id, member), protect_content=True)
+        elif member.status in ['administrator', 'creator'] or member.user.id == 1055012806:
+            user_id = message.from_user.id
+            bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ",
+                             reply_markup=start_menu(user_id, member))
         else:
             bot.send_message(message.chat.id, "Привет! Вы не состоите в группе 'Tennis🎾_BIG_Цнянка'."
                                               "Добавьтесь пожалуйста в группу для возможности бронирования корта",
@@ -555,19 +558,12 @@ def completed_delete(callback):
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('list'))
-def list_book(callback, edit=True):
+def list_book(callback):
     user_id = callback.data.split("_")[1]
-
-    if edit:
-        bot.edit_message_text(chat_id=callback.message.chat.id,
+    bot.edit_message_text(chat_id=callback.message.chat.id,
                               message_id=callback.message.message_id,
                               text="Выбери день:",
                               reply_markup=get_list_day(user_id=user_id, isInfo=True))
-    else:
-        bot.send_message(chat_id=callback.message.chat.id,
-                         text="Выбери день:",
-                         reply_markup=get_list_day(user_id=user_id, isInfo=True))
-
     bot.answer_callback_query(callback.id)
 
 
@@ -622,12 +618,15 @@ def statistica(callback):
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
-                          text="Введите период (ДД:ММ:ГГГГ-ДД:ММ:ГГГГ)",
-                          reply_markup=markup)
+                          text="Введите период (ДД:ММ:ГГГГ-ДД:ММ:ГГГГ)")
     bot.answer_callback_query(callback.id)
     bot.register_next_step_handler(callback.message, check_date, user_id)
 
 def check_date(message, user_id):
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+
     try:
         start, finish =  message.text.split('-')
         start = datetime.datetime.strptime(start, '%d:%m:%Y')
@@ -652,10 +651,9 @@ def check_date(message, user_id):
 
         try:
             db_list_game = query_with_reconnect(get_statistic)
-            text = (f"Статистика с {start.date().strftime("%d.%m.%Y")} по {finish.date().strftime("%d.%m.%Y")}: \n\n"
+            text = (f"Статистика с {start.date().strftime('%d.%m.%Y')} до {finish.date().strftime('%d.%m.%Y')}: \n\n"
                     + get_list_statistic(db_list_game))
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+
             bot.send_message(
                 chat_id=message.chat.id,
                 text=text,
@@ -671,8 +669,11 @@ def check_date(message, user_id):
             )
 
     except ValueError:
-        bot.send_message(message.chat.id, 'Неверный формат даты. Пожалуйста, используйте ДД:ММ:ГГГГ-ДД:ММ:ГГГГ')
-        bot.register_next_step_handler(message, check_date, user_id)
+        bot.send_message(chat_id=message.chat.id,
+                         text='Введена не корректная дата. Для повторного ввода вернитесь "назад" ',
+                         reply_markup=markup
+                         )
+
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('back'))
@@ -681,7 +682,7 @@ def back(callback):
                                  'Выберите игру из списка:',
                                  'Вы отменили игру',
                                  "У вас нет забронированных игр.",
-                                 "Введите период (ДД:ММ:ГГГГ-ДД:ММ:ГГГГ)"
+                                 'Введена не корректная дата. Для повторного ввода вернитесь "назад"'
                                  }:
         user_id = callback.data.split("_")[1]
         member = bot.get_chat_member(chat_id=CHAT_ID, user_id=callback.message.chat.id)
@@ -711,9 +712,9 @@ def back(callback):
     if callback.message.text.endswith("отменить эту бронь?"):
         delete(callback)
     if "корт забронирован в следующее время" in callback.message.text:
-        list_book(callback, False)
+        list_book(callback)
     if "пока корт никто не бронировал" in callback.message.text:
-        list_book(callback, False)
+        list_book(callback)
 
 # раскомментировать при работе через WEBHHOK
 # if __name__ == '__main__':
