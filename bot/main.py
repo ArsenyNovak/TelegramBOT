@@ -110,6 +110,14 @@ class BookKort(db.Model):
     time_update = db.Column(db.DateTime, default=datetime.datetime.now)
     canseled = db.Column(db.Boolean , default=False)
 
+class BlackList(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user = db.Column(db.String(80), nullable=False)
+    user_id = db.Column(db.String(80), nullable=False)
+    time_start = db.Column(db.DateTime, default=datetime.datetime.now)
+    time_finish = db.Column(db.DateTime, nullable=False)
+    time_update = db.Column(db.DateTime, default=datetime.datetime.now)
+    canseled = db.Column(db.Boolean , default=False)
 
 #Раскомментировать при использовании WEBHOOK
 
@@ -150,8 +158,26 @@ def create_time(during_timer, timer_start, day):
 def start_menu(user_id, member):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton('Посмотреть расписание', callback_data=f'list_{user_id}'))
-    markup.add(types.InlineKeyboardButton('Забронировать корт', callback_data=f'book_{user_id}'))
-    markup.add(types.InlineKeyboardButton('Отменить бронь', callback_data=f'delete_{user_id}'))
+    black_set = set()
+
+    def get_blacklist(session):
+        return session.query(BlackList).filter(
+            BlackList.time_finish > datetime.datetime.now(),
+            BlackList.canseled == False
+        ).all()
+
+    try:
+        db_user = query_with_reconnect(get_blacklist)
+        if db_user:
+            for user in db_user:
+                black_set.add(int(user.user_id))
+
+    except Exception as e:
+        logger.error(f"При попытке загрузить чёрный список возникла ошибка: {e}")
+
+    if member.user.id not in black_set:
+        markup.add(types.InlineKeyboardButton('Забронировать корт', callback_data=f'book_{user_id}'))
+        markup.add(types.InlineKeyboardButton('Отменить бронь', callback_data=f'delete_{user_id}'))
     if member.status in ['administrator', 'creator'] or member.user.id == 1055012806:
         markup.add(types.InlineKeyboardButton('Администрирование', callback_data=f'admin_{user_id}'))
     return markup
@@ -299,20 +325,46 @@ def admin_menu(user_id):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton('Статистика', callback_data=f'statistic_{user_id}'))
     markup.add(types.InlineKeyboardButton('Отменить бронь', callback_data=f'deleteID_{user_id}'))
+    markup.add(types.InlineKeyboardButton('Чёрный список', callback_data=f'black_{user_id}'))
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
     return markup
 
 
 def get_list_statistic(res):
     lines = []
-    header = f'{"№":<4}|{"Имя пользователя":<20}|{"всего":>5}|{"отм.":>5}'
-    separator = '-' * (4 + 1 + 20 + 1 + 5 + 1 + 5)
+    header = f'{"№":<4}|{"Имя пользователя":<20}|{"ID":<15}|{"всего":>5}|{"отм.":>5}'
+    separator = '-' * (4 + 1 + 20 + 15 + 1 + 5 + 1 + 5)
     lines.append(header)
     lines.append(separator)
-    for i, (user, total, canceled) in enumerate(res, 1):
-        lines.append(f'{i:<4} {user:<20} {total:>5} {canceled:>5}')
+    for i, (user, user_id, total, canceled) in enumerate(res, 1):
+        lines.append(f'{i:<4} {user:<20} {user_id:<15} {total:>5} {canceled:>5}')
     table_text = '\n'.join(lines)
     return f'```\n{table_text}\n```'
+
+
+def black_menu(user_id):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton('посмотреть', callback_data=f'black show_{user_id}'))
+    markup.add(types.InlineKeyboardButton('добавить', callback_data=f'black add_{user_id}'))
+    markup.add(types.InlineKeyboardButton('удалить', callback_data=f'black delete_{user_id}'))
+    markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+    return markup
+
+
+def get_black_list(res):
+    lines = ['Cписок:',]
+    header = f'{"№":<4}|{"Имя":<20}|{"ID":<12}|{"начало":>10}|{"конец":>10}|'
+    separator = '-' * (4 + 1 + 20 + 12 + 1 + 10 + 1 + 10)
+    lines.append(header)
+    lines.append(separator)
+    for column in res:
+        lines.append(f'{column.id:<4} {column.user:<20} {column.user_id:<12} '
+                     f'{column.time_start.strftime("%d.%m.%Y"):>5} '
+                     f'{column.time_finish.strftime("%d.%m.%Y"):>5}')
+    table_text = '\n'.join(lines)
+    return f'```\n{table_text}\n```'
+
+
 
 @bot.message_handler(commands=['start'])
 def main(message):
@@ -641,7 +693,7 @@ def statistica(callback):
     user_id = callback.data.split("_")[1]
     bot.edit_message_text(chat_id=callback.message.chat.id,
                           message_id=callback.message.message_id,
-                          text="Введите период (ДД:ММ:ГГГГ-ДД:ММ:ГГГГ)")
+                          text="Введите период (ДД.ММ.ГГГГ-ДД.ММ.ГГГГ)")
     bot.answer_callback_query(callback.id)
     bot.register_next_step_handler(callback.message, check_date, user_id)
 
@@ -652,8 +704,8 @@ def check_date(message, user_id):
 
     try:
         start, finish =  message.text.split('-')
-        start = datetime.datetime.strptime(start, '%d:%m:%Y')
-        finish = datetime.datetime.strptime(finish, '%d:%m:%Y')
+        start = datetime.datetime.strptime(start, '%d.%m.%Y')
+        finish = datetime.datetime.strptime(finish, '%d.%m.%Y')
         if finish < start:
             raise ValueError
         if finish.year < 2025 or start.year < 2025:
@@ -663,6 +715,7 @@ def check_date(message, user_id):
             result = (
                 session.query(
                     BookKort.user,
+                    BookKort.user_id,
                     func.count(BookKort.id).label('total_count'),
                     func.sum(case((BookKort.canseled == True, 1), else_=0)).label('canceled_count')
                 )
@@ -716,22 +769,19 @@ def deleteID_searsh(message, user_id):
             raise ValueError
 
         def get_game(session):
-            game = session.query(BookKort).filter_by(id=game_id, canseled=False).first()
-            if game:
-                return {"user": game.user,
-                        "time_start": game.time_start,
-                        "time_finish": game.time_finish
-                        }
-            else:
-                return None
+            return session.query(BookKort).filter(
+                BookKort.id == game_id,
+                BookKort.time_finish > datetime.datetime.now(),
+                BookKort.canseled == False
+            ).first()
 
         try:
             db_game = query_with_reconnect(get_game)
             if db_game:
-                day = db_game['time_start'].date().strftime("%d.%m.%Y")
-                time_start = db_game['time_start'].time().strftime("%H:%M")
-                time_finish = db_game['time_finish'].time().strftime("%H:%M")
-                user = db_game['user']
+                day = db_game.time_start.date().strftime("%d.%m.%Y")
+                time_start = db_game.time_start.time().strftime("%H:%M")
+                time_finish = db_game.time_finish.time().strftime("%H:%M")
+                user = db_game.user
                 markup.add(types.InlineKeyboardButton('Подтвердить', callback_data=f'complited delete_{game_id}_{user_id}'))
 
                 text = f"Подтвердите удаление брони {day} c {time_start} до {time_finish} ({user})"
@@ -758,15 +808,283 @@ def deleteID_searsh(message, user_id):
                          reply_markup=markup
                          )
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith('black_'))
+def black(callback):
+    user_id = callback.data.split("_")[1]
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text="Действия:",
+                          reply_markup=black_menu(user_id))
+    bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('black show_'))
+def blacklist(callback):
+    user_id = callback.data.split("_")[1]
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+
+    def get_blacklist(session):
+
+        return session.query(BlackList).filter(
+            BlackList.time_finish > datetime.datetime.now(),
+            BlackList.canseled == False
+        ).order_by(BlackList.time_finish).all()
+
+    try:
+        db_BlackList = query_with_reconnect(get_blacklist)
+        if db_BlackList:
+            text = get_black_list(db_BlackList)
+        else:
+            text = "Здесь пусто"
+        bot.edit_message_text(chat_id=callback.message.chat.id,
+                              message_id=callback.message.message_id,
+                              text=text,
+                              parse_mode='Markdown',
+                              reply_markup=markup)
+        bot.answer_callback_query(callback.id)
+
+    except Exception as e:
+        logger.error(f"При попытке отображения чёрного списка пользователей возникла ошибка: {e}")
+        bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text="Произошла ошибка при чтении данных.\nПопробуйте ещё раз."
+        )
+        bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('black add_'))
+def blackadd(callback):
+    user_id = callback.data.split("_")[1]
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text="Введите ID игрока и количество дней через пробел:")
+    bot.answer_callback_query(callback.id)
+    bot.register_next_step_handler(callback.message, blackadd_searsh, user_id)
+
+
+def blackadd_searsh(message, user_id):
+    markup = types.InlineKeyboardMarkup()
+    try:
+        black_id, black_day =  message.text.split(" ")
+        if not black_id.isdigit():
+            raise ValueError("ID пользователя не число")
+        if not black_day.isdigit():
+            raise ValueError("Колличество дней не число")
+
+        def get_blackID(session):
+            game = session.query(BookKort).filter_by(user_id=black_id).first()
+            if game:
+                return {"user": game.user}
+            else:
+                return None
+
+        try:
+            db_user = query_with_reconnect(get_blackID)
+            if db_user:
+                user = db_user['user']
+                black_day = str(black_day)
+                markup.add(types.InlineKeyboardButton('Подтвердить',
+                                                      callback_data=f'complited blackadd_{black_id}_{black_day}_{user_id}'))
+                if black_day == '1':
+                    black_day += ' день'
+                elif black_day in {'2', '3', '4'}:
+                    black_day += ' дня'
+                else:
+                    black_day += ' дней'
+                text = f"Подтвердите добавление {user} в чёрный список на {black_day}."
+            else:
+                text = f"Пользователь с таким ID никогда не бронировал игры"
+            markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+            bot.send_message(
+                chat_id=message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
+
+        except Exception as e:
+            logger.error(f"При попытке админа найти пользователя по ID возникла ошибка: {e}")
+            bot.send_message(
+                chat_id=message.chat.id,
+                text="Произошла ошибка при чтении данных.\nПопробуйте ещё раз."
+            )
+
+    except ValueError as e:
+        markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+        bot.send_message(chat_id=message.chat.id,
+                         text=f'Неверный формат ввода. {str(e)}. Для повторного ввода вернитесь "назад"',
+                         reply_markup=markup
+                         )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complited blackadd_'))
+def completed_blackadd(callback):
+
+    _, black_id, black_day, user_id = callback.data.split("_")
+    time_finish = datetime.date.today() + datetime.timedelta(days=int(black_day))
+
+    def get_blackID(session):
+        game = session.query(BookKort).filter_by(user_id=black_id).first()
+        return game.user
+
+    def black_add(session):
+        new_note = BlackList(user=user, user_id=black_id, time_finish=time_finish)
+        session.add(new_note)
+        session.commit()
+
+    try:
+        user = query_with_reconnect(get_blackID)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+        query_with_reconnect(black_add)
+
+        logger.info(f"В чёрный список был занесён {user} на {black_day} дней админом {user_id})")
+
+        bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text=f"Игрок {user} был занесён в чёрный список.",
+            reply_markup=markup
+        )
+        bot.answer_callback_query(callback.id)
+
+    except Exception as e:
+        logger.error(f"При попытке добавить игрока {user} в чёрный список возникла ошибка: {e}")
+        bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text="Произошла ошибка при добавлении игрока в чёрный список.\nПопробуйте ещё раз."
+        )
+        bot.answer_callback_query(callback.id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('black delete_'))
+def blackdelete(callback):
+    user_id = callback.data.split("_")[1]
+    bot.edit_message_text(chat_id=callback.message.chat.id,
+                          message_id=callback.message.message_id,
+                          text="Введите номер записи:")
+    bot.answer_callback_query(callback.id)
+    bot.register_next_step_handler(callback.message, blackdelete_searsh, user_id)
+
+
+def blackdelete_searsh(message, user_id):
+    markup = types.InlineKeyboardMarkup()
+    try:
+        black_id =  message.text
+        if not black_id.isdigit():
+            raise ValueError("Номер записи не число")
+
+        def get_blackID(session):
+            return session.query(BlackList).filter(
+                BlackList.id == black_id,
+                BlackList.time_finish > datetime.datetime.now(),
+                BlackList.canseled == False
+            ).first()
+
+        try:
+            db_user = query_with_reconnect(get_blackID)
+            if db_user:
+                user = db_user.user
+                markup.add(types.InlineKeyboardButton('Подтвердить',
+                                                      callback_data=f'complited blackdelete_{black_id}_{user_id}'))
+                text = f"Подтвердите удаление игрока {user} из чёрного списка."
+            else:
+                text = f"Запись с id={black_id} не найдена"
+            markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+            bot.send_message(
+                chat_id=message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
+
+        except Exception as e:
+            logger.error(f"При попытке найти пользователя в чёрном списке возникла ошибка: {e}")
+            bot.send_message(
+                chat_id=message.chat.id,
+                text="Произошла ошибка при чтении данных.\nПопробуйте ещё раз."
+            )
+
+    except ValueError as e:
+        markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+        bot.send_message(chat_id=message.chat.id,
+                         text=f'Неверный формат ввода. {str(e)}. Для повторного ввода вернитесь "назад"',
+                         reply_markup=markup
+                         )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complited blackdelete_'))
+def completed_blackdelete(callback):
+
+    _, black_id, user_id = callback.data.split("_")
+
+
+    def black_delete(session):
+        note = session.query(BlackList).filter_by(id=black_id).first()
+        note.canseled = True
+        note.time_update = datetime.datetime.now()
+        session.commit()
+        return {
+            "user": note.user,
+        }
+    try:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
+        note = query_with_reconnect(black_delete)
+        user = note['user']
+        logger.info(f"Игрок {user} был убран админом {user_id} из чёрного списка)")
+
+        bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text=f"Игрок {user} был убран из чёрного списка.",
+            reply_markup=markup
+        )
+        bot.answer_callback_query(callback.id)
+
+    except Exception as e:
+        logger.error(f"При попытке удалить игрока {user} из чёрный список возникла ошибка: {e}")
+        bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text="Произошла ошибка при удалении игрока из чёрного списка.\nПопробуйте ещё раз."
+        )
+        bot.answer_callback_query(callback.id)
+
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('back'))
 def back(callback):
-    if callback.message.text in {"Выбери день:",
-                                 'Выберите игру из списка:',
-                                 'Вы отменили игру',
-                                 "У вас нет забронированных игр.",
-                                 'С большой силой приходит большая ответственность'
-                                 }:
+    start_menu_text = {
+        "Выбери день:",
+        'Выберите игру из списка:',
+        'Вы отменили игру',
+        "У вас нет забронированных игр.",
+        'С большой силой приходит большая ответственность'
+    }
+
+    administration_text = (
+        "Статистика с",
+        "Введено не число.",
+        "Игры с №",
+        "Подтвердите удаление брони",
+        "Введена не корректная дата.",
+        "Действия:"
+    )
+
+    black_text = (
+        "Здесь пусто",
+        "Cписок:",
+        "Неверный формат ввода.",
+        "Пользователь с таким ID никогда не бронировал игры",
+        "Игрок",
+        "Подтвердите удаление игрока ",
+        'Подтвердите добавление',
+        "Запись с id"
+
+    )
+
+    if callback.message.text in start_menu_text:
         user_id = callback.data.split("_")[1]
         member = bot.get_chat_member(chat_id=CHAT_ID, user_id=callback.message.chat.id)
         bot.edit_message_text(chat_id=callback.message.chat.id,
@@ -790,16 +1108,10 @@ def back(callback):
         list_book(callback)
     if "пока корт никто не бронировал" in callback.message.text:
         list_book(callback)
-    if callback.message.text.startswith("Введена не корректная дата."):
+    if callback.message.text.startswith(administration_text):
         administration(callback)
-    if callback.message.text.startswith("Статистика с"):
-        administration(callback)
-    if callback.message.text.startswith("Введено не число."):
-        administration(callback)
-    if callback.message.text.startswith("Игры с №"):
-        administration(callback)
-    if callback.message.text.startswith("Подтвердите удаление брони"):
-        administration(callback)
+    if callback.message.text.startswith(black_text):
+        black(callback)
 
 # раскомментировать при работе через WEBHHOK
 # if __name__ == '__main__':
