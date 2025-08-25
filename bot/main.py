@@ -28,10 +28,15 @@ CHAT_ID = -1002737626417
 MESSAGE_THREAD_ID = 2
 
 # количество доступных дней для бронирования
-DAY = 3
+DAY = 4
 
 #день ввода бота и следующих 2 за ним
-START_DAY = {'17.08.2025', '18.08.2025', '19.08.2025'}
+START_DAY = {'23.08.2025', '24.08.2025', '25.08.2025'}
+
+#время появления нового дня
+HOUR_START = 22
+
+MEMBER_EXCEPTION = {1150384251}
 
 
 
@@ -185,14 +190,27 @@ def start_menu(user_id, member):
 
 def get_list_day(user_id, isInfo):
     markup = types.InlineKeyboardMarkup()
-    today = datetime.date.today()
+    today = datetime.datetime.now()
     for i in range(DAY):
         day_num = datetime.datetime.isoweekday(today)
         day_name = days[day_num]
         date_str = today.strftime("%d.%m.%Y")
         if date_str not in START_DAY:
-            markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})',
-                                                  callback_data=f'day_{date_str}_{user_id}_{isInfo}'))
+            if  i+1 not in {1, DAY}:
+                markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})',
+                                                      callback_data=f'day_{date_str}_{user_id}_{isInfo}'))
+            else:
+                date_only = today.date()
+                custom_time = datetime.time(HOUR_START, 0, 0)
+                time_start = datetime.datetime.combine(date_only, custom_time)
+                if i + 1 == DAY:
+                    if today >= time_start:
+                        markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})',
+                                                              callback_data=f'day_{date_str}_{user_id}_{isInfo}'))
+                if i + 1 == 1:
+                    if today < time_start:
+                        markup.add(types.InlineKeyboardButton(f'{date_str} ({day_name})',
+                                                              callback_data=f'day_{date_str}_{user_id}_{isInfo}'))
         today += datetime.timedelta(days=1)
     markup.add(types.InlineKeyboardButton('Назад', callback_data=f'back_{user_id}'))
     return markup
@@ -374,7 +392,7 @@ def main(message):
     #     logger.info(f"{message.message_thread_id}")
     member = bot.get_chat_member(chat_id=CHAT_ID, user_id=message.from_user.id)
     if message.chat.type == "private":
-        if member.status == 'member':
+        if member.status == 'member' or member.user.id in MEMBER_EXCEPTION:
             user_id = message.from_user.id
             bot.send_message(message.chat.id, "Привет! Вот чем я могу тебе помочь: ",
                              reply_markup=start_menu(user_id, member), protect_content=True)
